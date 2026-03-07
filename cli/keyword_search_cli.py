@@ -85,13 +85,13 @@ def split_word(text: str) -> list[str]:
     return [token for token in text.split() if token]
 
 
-def matches_query(query_tokens: list[str], title_tokens: list[str]) -> bool:
-    """Check if at least one query token matches any part of a title token."""
-    for q_token in query_tokens:
-        for t_token in title_tokens:
-            if q_token in t_token:
-                return True
-    return False
+# def matches_query(query_tokens: list[str], title_tokens: list[str]) -> bool:
+#     """Check if at least one query token matches any part of a title token."""
+#     for q_token in query_tokens:
+#         for t_token in title_tokens:
+#             if q_token in t_token:
+#                 return True
+#     return False
 
 
 def main() -> None:
@@ -113,7 +113,8 @@ def main() -> None:
             inverted_index = InvertedIndex()
             inverted_index.load()
             results = []
-            query_tokens = split_word(query.lower())
+            query_clean = remove_punc(query.lower())
+            query_tokens = split_word(query_clean)
             query_filtered = remove_stop_words_stem(query_tokens)
             for token in query_filtered:
                 doc_ids = inverted_index.get_documents(token)
