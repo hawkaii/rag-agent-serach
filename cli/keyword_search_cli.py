@@ -5,10 +5,12 @@ import json
 import string
 from pathlib import Path
 from nltk.stem import PorterStemmer
+import pickle
 
 BASE_DIR = Path(__file__).parent.parent
 data_path = BASE_DIR / "data" / "movies.json"
 stop_words_path = BASE_DIR / "data" / "stopwords.txt"
+cache_dir = BASE_DIR / "cache"
 
 with open(data_path, "r", encoding="utf-8") as f:
     data = json.load(f)
@@ -18,6 +20,50 @@ with open(stop_words_path, "r", encoding="utf-8") as f:
     stop_words = f.read().splitlines()
 
 stemmer = PorterStemmer()
+
+
+class InvertedIndex:
+    def __init__(self):
+        self.index = {}
+        self.docmap = {}
+
+    def __add_document(self, doc_id, text):
+        text_clean = remove_punc(text.lower())
+        tokens = remove_stop_words_stem(split_word(text_clean))
+        for token in tokens:
+            if token not in self.index:
+                self.index[token] = set()
+            self.index[token].add(doc_id)
+
+    def get_documents(self, term):
+        term = term.lower()
+        doc_ids = self.index.get(term, set())
+        return sorted(doc_ids)
+
+    def build(self, movies):
+        for doc_id, movie in enumerate(movies):
+            tit_desc = f"{movie['title']} {movie['description']}"
+            # print(tit_desc)
+            self.__add_document(doc_id, tit_desc)
+            self.docmap[doc_id] = movie
+
+    def save(self):
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        with open(cache_dir / "index.pkl", "wb") as f:
+            pickle.dump(self.index, f)
+        with open(cache_dir / "docmap.pkl", "wb") as f:
+            pickle.dump(self.docmap, f)
+
+    def load(self):
+        import os
+
+        if not os.path.exists(cache_dir / "index.pkl"):
+            raise FileNotFoundError("Index Not Found")
+        with open(cache_dir / "index.pkl", "rb") as f:
+            self.index = pickle.load(f)
+        with open(cache_dir / "docmap.pkl", "rb") as f:
+            self.docmap = pickle.load(f)
 
 
 def remove_stop_words_stem(tokens: list[str]) -> list[str]:
@@ -55,6 +101,8 @@ def main() -> None:
     search_parser = subparsers.add_parser("search", help="Search movies using BM25")
     search_parser.add_argument("query", type=str, help="Search query")
 
+    build_parser = subparsers.add_parser("build", help="Build the parser index")
+
     args = parser.parse_args()
 
     match args.command:
@@ -62,21 +110,29 @@ def main() -> None:
             # print the search query here
             query = args.query
 
+            inverted_index = InvertedIndex()
+            inverted_index.load()
             results = []
-            for movie in movies:
-                title_clean = remove_punc(movie["title"]).lower()
-                query_tokens = split_word(query.lower())
-                title_tokens = split_word(title_clean)
-                query_filtered = remove_stop_words_stem(query_tokens)
-                title_filtered = remove_stop_words_stem(title_tokens)
-                if matches_query(query_filtered, title_filtered):
-                    results.append(movie)
-
-            results = results[:5]
+            query_tokens = split_word(query.lower())
+            query_filtered = remove_stop_words_stem(query_tokens)
+            for token in query_filtered:
+                doc_ids = inverted_index.get_documents(token)
+                for doc_id in doc_ids:
+                    if doc_id not in results:
+                        results.append(doc_id)
+                    if len(results) >= 5:
+                        break
+                if len(results) >= 5:
+                    break
 
             print(f"Searching for: {query}")
-            for i, movie in enumerate(results, 1):
-                print(f"{i}. {movie['title']}")
+            for i, doc_id in enumerate(results, 1):
+                movie = inverted_index.docmap[doc_id]
+                print(f"{i}. {movie['title']} (id : {doc_id})")
+        case "build":
+            index = InvertedIndex()
+            index.build(movies)
+            index.save()
 
         case _:
             parser.print_help()
